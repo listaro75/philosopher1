@@ -1,8 +1,25 @@
 #include "../include/philo.h"
 
-/*
-** Vérifie si un philosophe est mort
-*/
+/**
+ * @brief Vérifie si un philosophe est mort de faim
+ * 
+ * @param data Pointeur vers la structure contenant tous les philosophes et paramètres
+ * @return int 1 si un philosophe est mort, 0 si tous sont encore vivants
+ * 
+ * Processus de vérification :
+ * 1. Parcourt tous les philosophes séquentiellement
+ * 2. Pour chaque philosophe, calcule le temps écoulé depuis son dernier repas
+ * 3. Si ce temps dépasse time_to_die, le philosophe meurt :
+ *    - Active le flag global 'dead' (protégé par mutex)
+ *    - Affiche le message de mort avec timestamp
+ *    - Retourne 1 pour arrêter la simulation
+ * 
+ * Thread-safety :
+ * - Utilise dead_mutex pour protéger l'accès au flag 'dead'
+ * - Utilise print_mutex pour garantir l'intégrité du message de mort
+ * 
+ * Note : Cette fonction est appelée en continu par le thread principal
+ */
 int	check_death(t_data *data)
 {
     int			i;
@@ -28,9 +45,28 @@ int	check_death(t_data *data)
     return (0);
 }
 
-/*
-** Vérifie si tous les philosophes ont mangé le nombre requis de repas
-*/
+/**
+ * @brief Vérifie si tous les philosophes ont terminé de manger
+ * 
+ * @param data Pointeur vers la structure contenant les philosophes et nb_meals
+ * @return int 1 si tous ont fini leurs repas, 0 sinon
+ * 
+ * Logique de vérification :
+ * 1. Si nb_meals == -1 (simulation infinie), retourne toujours 0
+ * 2. Compte le nombre de philosophes ayant atteint leur quota de repas
+ * 3. Si tous les philosophes ont mangé nb_meals fois ou plus :
+ *    - Active le flag 'dead' pour arrêter la simulation
+ *    - Retourne 1 pour signaler la fin de la simulation
+ * 
+ * Cas d'usage :
+ * - Utilisé quand un nombre spécifique de repas est demandé (5ème argument)
+ * - Permet une fin propre de la simulation sans mort
+ * - Alternative à l'arrêt par timeout (check_death)
+ * 
+ * Thread-safety :
+ * - Utilise dead_mutex pour protéger l'accès au flag 'dead'
+ * - Lecture thread-safe de meals_eaten (entier atomique)
+ */
 int	check_meals(t_data *data)
 {
     int	i;

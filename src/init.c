@@ -1,8 +1,24 @@
 #include "../include/philo.h"
 
-/*
-** Initialise les données principales du programme
-*/
+/**
+ * @brief Initialise les données principales du programme à partir des arguments
+ * 
+ * @param data Pointeur vers la structure de données principale à initialiser
+ * @param argv Tableau des arguments de la ligne de commande :
+ *             argv[1] = nombre de philosophes
+ *             argv[2] = temps avant la mort (ms)
+ *             argv[3] = temps pour manger (ms)
+ *             argv[4] = temps pour dormir (ms)
+ *             argv[5] = nombre de repas (optionnel)
+ * @return int 1 si l'initialisation réussit, 0 en cas d'erreur
+ * 
+ * Cette fonction :
+ * - Parse et stocke tous les paramètres de simulation
+ * - Initialise les flags de contrôle (dead = 0)
+ * - Enregistre le timestamp de début de simulation
+ * - Crée les mutex de synchronisation (print_mutex, dead_mutex)
+ * - Appelle les fonctions d'initialisation des fourchettes et philosophes
+ */
 int	init_data(t_data *data, char **argv)
 {
     data->nb_philo = ft_atoi(argv[1]);
@@ -26,9 +42,20 @@ int	init_data(t_data *data, char **argv)
     return (1);
 }
 
-/*
-** Initialise les fourchettes (mutex)
-*/
+/**
+ * @brief Initialise le tableau des fourchettes (mutex)
+ * 
+ * @param data Pointeur vers la structure de données contenant le nombre de philosophes
+ * @return int 1 si l'initialisation réussit, 0 en cas d'erreur d'allocation ou de mutex
+ * 
+ * Processus d'initialisation :
+ * 1. Alloue dynamiquement un tableau de nb_philo mutex
+ * 2. Initialise chaque mutex représentant une fourchette
+ * 3. En cas d'échec de pthread_mutex_init, retourne 0
+ * 
+ * Chaque fourchette est partagée entre deux philosophes adjacents :
+ * - Fourchette i est utilisée par philosophe i et philosophe (i+1)%nb_philo
+ */
 int	init_forks(t_data *data)
 {
     int	i;
@@ -46,9 +73,25 @@ int	init_forks(t_data *data)
     return (1);
 }
 
-/*
-** Initialise les philosophes
-*/
+/**
+ * @brief Initialise le tableau des philosophes avec leurs propriétés
+ * 
+ * @param data Pointeur vers la structure de données principale
+ * @return int 1 si l'initialisation réussit, 0 en cas d'erreur d'allocation
+ * 
+ * Pour chaque philosophe, initialise :
+ * - id : numéro unique du philosophe (1 à nb_philo)
+ * - meals_eaten : compteur de repas (initialisé à 0)
+ * - last_meal_time : timestamp du dernier repas (début de simulation)
+ * - data : référence vers les données partagées
+ * - left_fork : pointeur vers la fourchette de gauche (mutex i)
+ * - right_fork : pointeur vers la fourchette de droite (mutex (i+1)%nb_philo)
+ * 
+ * Attribution des fourchettes :
+ * - Philosophe 0 : fourchettes 0 et 1
+ * - Philosophe 1 : fourchettes 1 et 2
+ * - Philosophe n-1 : fourchettes n-1 et 0 (bouclage)
+ */
 int	init_philos(t_data *data)
 {
     int	i;
