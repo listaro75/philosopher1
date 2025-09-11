@@ -30,4 +30,16 @@ fclean: clean
 
 re: fclean all
 
-.PHONY: all clean fclean re    
+# Debug builds
+debug: CFLAGS += -g -DDEBUG
+debug: re
+
+# ThreadSanitizer build
+tsan: CFLAGS += -fsanitize=thread -g
+tsan: re
+
+# Helgrind target
+helgrind: debug
+	valgrind --tool=helgrind --history-level=full ./$(NAME) $(ARGS)
+
+.PHONY: all clean fclean re debug tsan helgrind    

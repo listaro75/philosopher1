@@ -6,7 +6,7 @@
 /*   By: luda-cun <luda-cun@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/11 11:54:30 by luda-cun          #+#    #+#             */
-/*   Updated: 2025/09/11 11:59:22 by luda-cun         ###   ########.fr       */
+/*   Updated: 2025/09/11 14:18:30 by luda-cun         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -147,10 +147,13 @@ void	print_status(t_philo *philo, char *status)
 	long long	current_time;
 
 	pthread_mutex_lock(&philo->data->print_mutex);
+	pthread_mutex_lock(&philo->data->dead_mutex);
 	if (!philo->data->dead)
 	{
 		current_time = get_time() - philo->data->start_time;
 		printf("%lld %d %s\n", current_time, philo->id, status);
 	}
+	pthread_mutex_unlock(&philo->data->dead_mutex);
 	pthread_mutex_unlock(&philo->data->print_mutex);
+
 }

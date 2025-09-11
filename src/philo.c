@@ -6,7 +6,7 @@
 /*   By: luda-cun <luda-cun@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/11 11:54:23 by luda-cun          #+#    #+#             */
-/*   Updated: 2025/09/11 12:15:17 by luda-cun         ###   ########.fr       */
+/*   Updated: 2025/09/11 15:25:52 by luda-cun         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -35,11 +35,29 @@
  *
  * Note : Cette fonction ne libère PAS les fourchettes (fait dans eat())
  */
-static void	take_forks(t_philo *philo)
+static int	take_forks(t_philo *philo)
 {
+	// Vérifier si la simulation est arrêtée
+	pthread_mutex_lock(&philo->data->dead_mutex);
+	if (philo->data->dead)
+	{
+		pthread_mutex_unlock(&philo->data->dead_mutex);
+		return (0);
+	}
+	pthread_mutex_unlock(&philo->data->dead_mutex);
+		
 	if (philo->id % 2 == 0)
 	{
 		pthread_mutex_lock(philo->right_fork);
+		// Vérifier à nouveau si la simulation est arrêtée
+		pthread_mutex_lock(&philo->data->dead_mutex);
+		if (philo->data->dead)
+		{
+			pthread_mutex_unlock(&philo->data->dead_mutex);
+			pthread_mutex_unlock(philo->right_fork);
+			return (0);
+		}
+		pthread_mutex_unlock(&philo->data->dead_mutex);
 		print_status(philo, "has taken a fork");
 		pthread_mutex_lock(philo->left_fork);
 		print_status(philo, "has taken a fork");
@@ -47,64 +65,60 @@ static void	take_forks(t_philo *philo)
 	else
 	{
 		pthread_mutex_lock(philo->left_fork);
+		// Vérifier à nouveau si la simulation est arrêtée
+		pthread_mutex_lock(&philo->data->dead_mutex);
+		if (philo->data->dead)
+		{
+			pthread_mutex_unlock(&philo->data->dead_mutex);
+			pthread_mutex_unlock(philo->left_fork);
+			return (0);
+		}
+		pthread_mutex_unlock(&philo->data->dead_mutex);
 		print_status(philo, "has taken a fork");
 		pthread_mutex_lock(philo->right_fork);
 		print_status(philo, "has taken a fork");
 	}
+	return (1);
 }
 
+
+
 /**
- * @brief Gère le processus complet de manger d'un philosophe
+ * @brief Calcule et exécute un temps de réflexion intelligent
  *
- * @param philo Pointeur vers le philosophe qui va manger
+ * @param philo Pointeur vers le philosophe qui va penser
+ * @param silent Si true, pas d'affichage du statut "thinking"
  *
- * Séquence d'actions :
- * 1. Appelle take_forks() pour acquérir les deux fourchettes
- * 2. Affiche "is eating" avec timestamp
- * 3. Met à jour last_meal_time avec l'heure actuelle (crucial pour check_death)
- * 4. Incrémente le compteur meals_eaten
- * 5. Dort pendant time_to_eat millisecondes (simulation du temps de manger)
- * 6. Libère les deux fourchettes dans l'ordre (gauche puis droite)
- *
- * Thread-safety :
- * - Les fourchettes (mutex) sont correctement acquises et libérées
- * - last_meal_time est mis à jour de façon thread-safe
- * - meals_eaten est incrémenté (pas de race condition car accès séquentiel)
+ * Cette fonction calcule un temps de réflexion optimal basé sur :
+ * - Le temps écoulé depuis le dernier repas
+ * - Le temps de mort et le temps de manger
+ * Cela aide à éviter la famine en étalant les cycles des philosophes
  */
-static void	eat(t_philo *philo)
+static void	think_routine(t_philo *philo, int silent)
 {
-	take_forks(philo);
-	print_status(philo, "is eating");
+	long long	time_to_think;
+	long long	current_time;
+	long long	last_meal;
+
+	current_time = get_time();
 	pthread_mutex_lock(&philo->meal_mutex);
-	philo->last_meal_time = get_time();
+	last_meal = philo->last_meal_time;
 	pthread_mutex_unlock(&philo->meal_mutex);
-	philo->meals_eaten++;
-	ft_usleep(philo->data->time_to_eat);
-	pthread_mutex_unlock(philo->left_fork);
-	pthread_mutex_unlock(philo->right_fork);
-}
 
-/**
- * @brief Gère les phases de sommeil et de réflexion du philosophe
- *
- * @param philo Pointeur vers le philosophe qui va dormir puis penser
- *
- * Séquence d'actions :
- * 1. Affiche "is sleeping" avec timestamp
- * 2. Dort pendant time_to_sleep millisecondes
- * 3. Affiche "is thinking" avec timestamp
- * 4. Continue immédiatement (pas de temps dédié à la réflexion)
- *
- * Note sur la réflexion :
- * - Le temps de "thinking" n'est pas simulé par un sleep
- * - Le philosophe retourne immédiatement au cycle pour essayer de manger
- * - Ceci optimise les performances et réduit les risques de famine
- */
-static void	sleep_and_think(t_philo *philo)
-{
-	print_status(philo, "is sleeping");
-	ft_usleep(philo->data->time_to_sleep);
-	print_status(philo, "is thinking");
+	time_to_think = (philo->data->time_to_die
+			- (current_time - last_meal)
+			- philo->data->time_to_eat) / 2;
+	
+	if (time_to_think < 0)
+		time_to_think = 0;
+	if (time_to_think == 0 && silent == 1)
+		time_to_think = 1;
+	if (time_to_think > 600)
+		time_to_think = 200;
+	
+	if (silent == 0)
+		print_status(philo, "is thinking");
+	ft_usleep(time_to_think);
 }
 
 /**
@@ -130,15 +144,60 @@ void	*philo_routine(void *arg)
 		pthread_mutex_unlock(philo->left_fork);
 		return (NULL);
 	}
-	if (philo->id % 2 == 0)
-		usleep(1000);
-	while (!philo->data->dead)
+	
+	// Initialiser last_meal_time au temps de démarrage
+	pthread_mutex_lock(&philo->meal_mutex);
+	philo->last_meal_time = philo->data->start_time;
+	pthread_mutex_unlock(&philo->meal_mutex);
+	
+	// Délai synchronisé pour tous les threads
+	while (get_time() < philo->data->start_time)
+		continue;
+	
+	// Les philosophes impairs commencent par penser (évite les deadlocks)
+	if (philo->id % 2 == 1)
+		think_routine(philo, 1);
+	
+	while (1)
 	{
-		eat(philo);
-		if (philo->data->nb_meals > 0
-			&& philo->meals_eaten >= philo->data->nb_meals)
-			break ;
-		sleep_and_think(philo);
+		int	current_meals;
+		int	is_dead;
+		
+		pthread_mutex_lock(&philo->data->dead_mutex);
+		is_dead = philo->data->dead;
+		pthread_mutex_unlock(&philo->data->dead_mutex);
+		
+		if (is_dead)
+			break;
+		
+		// Manger et dormir
+		if (!take_forks(philo))
+			break;
+		print_status(philo, "is eating");
+		pthread_mutex_lock(&philo->meal_mutex);
+		philo->last_meal_time = get_time();
+		philo->meals_eaten++;
+		pthread_mutex_unlock(&philo->meal_mutex);
+		ft_usleep(philo->data->time_to_eat);
+		pthread_mutex_unlock(philo->left_fork);
+		pthread_mutex_unlock(philo->right_fork);
+		
+		// Vérifier si assez mangé
+		if (philo->data->nb_meals > 0)
+		{
+			pthread_mutex_lock(&philo->meal_mutex);
+			current_meals = philo->meals_eaten;
+			pthread_mutex_unlock(&philo->meal_mutex);
+			if (current_meals >= philo->data->nb_meals)
+				break;
+		}
+		
+		// Dormir
+		print_status(philo, "is sleeping");
+		ft_usleep(philo->data->time_to_sleep);
+		
+		// Penser de manière intelligente
+		think_routine(philo, 0);
 	}
 	return (NULL);
 }
@@ -189,7 +248,7 @@ int	start_simulation(t_data *data)
 		i++;
 	}
 	while (!check_death(data) && !check_meals(data))
-		usleep(1000);
+		usleep(10);
 	i = 0;
 	while (i < data->nb_philo)
 	{

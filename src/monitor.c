@@ -6,7 +6,7 @@
 /*   By: luda-cun <luda-cun@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/11 11:54:16 by luda-cun          #+#    #+#             */
-/*   Updated: 2025/09/11 12:28:27 by luda-cun         ###   ########.fr       */
+/*   Updated: 2025/09/11 15:25:55 by luda-cun         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -89,6 +89,7 @@ int	check_meals(t_data *data)
 {
 	int	i;
 	int	finished;
+	int	current_meals;
 
 	if (data->nb_meals == -1)
 		return (0);
@@ -96,7 +97,10 @@ int	check_meals(t_data *data)
 	i = 0;
 	while (i < data->nb_philo)
 	{
-		if (data->philos[i].meals_eaten >= data->nb_meals)
+		pthread_mutex_lock(&data->philos[i].meal_mutex);
+		current_meals = data->philos[i].meals_eaten;
+		pthread_mutex_unlock(&data->philos[i].meal_mutex);
+		if (current_meals >= data->nb_meals)
 			finished++;
 		i++;
 	}
