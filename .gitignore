@@ -1,0 +1,40 @@
+# Fichiers de compilation
+philo
+bin/
+*.o
+
+# Fichiers de débogage
+*.dSYM/
+core
+
+# Fichiers temporaires de test
+/tmp/philo_*.out
+/tmp/philo_*.log
+/tmp/stress_test.out
+/tmp/helgrind.out
+/tmp/output_test.out
+/tmp/valgrind_memory.out
+/tmp/race_test*.log
+
+# Configuration VS Code
+.vscode/
+
+# Fichiers système
+.DS_Store
+*~
+*.swp
+*.swo
+
+# Fichiers de logs
+*.log
+
+# Fichiers de sauvegarde
+*~
+*.bak
+.*.swp
+.*.swo
+
+# Fichiers de valgrind
+vgcore.*
+callgrind.out.*
+massif.out.*

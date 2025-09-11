@@ -6,7 +6,7 @@
 /*   By: luda-cun <luda-cun@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/11 11:53:58 by luda-cun          #+#    #+#             */
-/*   Updated: 2025/09/11 12:14:46 by luda-cun         ###   ########.fr       */
+/*   Updated: 2025/09/11 12:28:18 by luda-cun         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -81,7 +81,7 @@ int	init_data(t_data *data, char **argv)
  * @brief Initialise le tableau des fourchettes (mutex)
  *
 
- * @param data Pointeur vers la structure de données contenant le 
+ * @param data Pointeur vers la structure de données contenant le
 	nombre de philosophes
  * @return int 1 si l'initialisation réussit,
 	0 en cas d'erreur d'allocation ou de mutex

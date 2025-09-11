@@ -6,7 +6,7 @@
 /*   By: luda-cun <luda-cun@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/11 11:54:16 by luda-cun          #+#    #+#             */
-/*   Updated: 2025/09/11 12:15:50 by luda-cun         ###   ########.fr       */
+/*   Updated: 2025/09/11 12:28:27 by luda-cun         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -16,7 +16,7 @@
  * @brief Vérifie si un philosophe est mort de faim
  *
 
-	* @param data Pointeur vers la structure contenant tous les 
+	* @param data Pointeur vers la structure contenant tous les
 	philosophes et paramètres
  * @return int 1 si un philosophe est mort, 0 si tous sont encore vivants
  *
@@ -34,35 +34,33 @@
  *
  * Note : Cette fonction est appelée en continu par le thread principal
  */
-int    check_death(t_data *data)
+int	check_death(t_data *data)
 {
-    int         i;
-    long long   current_time;
-    long long   last_meal;
+	int			i;
+	long long	current_time;
+	long long	last_meal;
 
-    i = 0;
-    while (i < data->nb_philo)
-    {
-        current_time = get_time();
-        
-        pthread_mutex_lock(&data->philos[i].meal_mutex);
-        last_meal = data->philos[i].last_meal_time;
-        pthread_mutex_unlock(&data->philos[i].meal_mutex);
-        
-        if (current_time - last_meal > data->time_to_die)
-        {
-            pthread_mutex_lock(&data->dead_mutex);
-            data->dead = 1;
-            pthread_mutex_unlock(&data->dead_mutex);
-            pthread_mutex_lock(&data->print_mutex);
-            printf("%lld %d died\n", current_time - data->start_time,
-                data->philos[i].id);
-            pthread_mutex_unlock(&data->print_mutex);
-            return (1);
-        }
-        i++;
-    }
-    return (0);
+	i = 0;
+	while (i < data->nb_philo)
+	{
+		current_time = get_time();
+		pthread_mutex_lock(&data->philos[i].meal_mutex);
+		last_meal = data->philos[i].last_meal_time;
+		pthread_mutex_unlock(&data->philos[i].meal_mutex);
+		if (current_time - last_meal > data->time_to_die)
+		{
+			pthread_mutex_lock(&data->dead_mutex);
+			data->dead = 1;
+			pthread_mutex_unlock(&data->dead_mutex);
+			pthread_mutex_lock(&data->print_mutex);
+			printf("%lld %d died\n", current_time - data->start_time,
+				data->philos[i].id);
+			pthread_mutex_unlock(&data->print_mutex);
+			return (1);
+		}
+		i++;
+	}
+	return (0);
 }
 
 /**
