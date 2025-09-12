@@ -47,7 +47,7 @@ int	check_death(t_data *data)
 		pthread_mutex_lock(&data->philos[i].meal_mutex);
 		last_meal = data->philos[i].last_meal_time;
 		pthread_mutex_unlock(&data->philos[i].meal_mutex);
-		if (current_time - last_meal > data->time_to_die)
+		if (current_time - last_meal >= data->time_to_die)
 		{
 			pthread_mutex_lock(&data->dead_mutex);
 			data->dead = 1;

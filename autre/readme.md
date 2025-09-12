@@ -60,7 +60,9 @@ typedef struct s_philo
 {
     int             id;              // Numéro du philosophe (1-n)
     int             meals_eaten;     // Nombre de repas consommés
+    int             eating;          // Flag indiquant si le philosophe mange actuellement
     long long       last_meal_time;  // Timestamp du dernier repas
+    pthread_mutex_t meal_mutex;      // Mutex pour protéger les données de repas
     pthread_t       thread;          // Thread du philosophe
     pthread_mutex_t *left_fork;      // Fourchette de gauche
     pthread_mutex_t *right_fork;     // Fourchette de droite
@@ -83,6 +85,330 @@ typedef struct s_data
     t_philo         *philos;         // Tableau des philosophes
 } t_data;
 ```
+
+## Architecture des Threads et Mutex
+
+### Vue d'Ensemble de la Concurrence
+
+Le programme utilise **n+1 threads** pour n philosophes :
+- **n threads philosophes** : Un thread par philosophe qui exécute le cycle manger/dormir/penser
+- **1 thread monitor** : Surveille en continu les conditions de fin (mort ou repas terminés)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Thread Principal                          │
+│  ┌─────────────────┐    ┌────────────────────────────────┐  │
+│  │   Initialisation │    │         Nettoyage              │  │
+│  │   - Structures   │    │   - pthread_join()             │  │
+│  │   - Mutex        │    │   - Destruction des mutex      │  │
+│  │   - Threads      │    │   - Libération mémoire         │  │
+│  └─────────────────┘    └────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+           │                                    ▲
+           ▼                                    │
+┌─────────────────────────────────────────────────────────────┐
+│                  Threads Créés                              │
+│                                                             │
+│  ┌──────────────┐  ┌──────────────┐         ┌─────────────┐ │
+│  │   Thread     │  │   Thread     │   ...   │   Thread    │ │
+│  │ Philosophe 1 │  │ Philosophe 2 │         │ Monitor     │ │
+│  │              │  │              │         │             │ │
+│  │ philo_routine│  │ philo_routine│         │ monitor()   │ │
+│  └──────────────┘  └──────────────┘         └─────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Architecture des Mutex
+
+Le programme utilise **plusieurs types de mutex** pour protéger différentes ressources partagées :
+
+```c
+// 1. FOURCHETTES (n mutex) - Une par fourchette
+pthread_mutex_t forks[n];
+// Protection : Accès exclusif aux fourchettes
+// Utilisé par : Threads philosophes pour manger
+
+// 2. AFFICHAGE (1 mutex global)
+pthread_mutex_t print_mutex;
+// Protection : Messages de sortie non mélangés
+// Utilisé par : Tous les threads pour printf()
+
+// 3. FLAG DE MORT (1 mutex global)
+pthread_mutex_t dead_mutex;
+// Protection : Variable 'dead' partagée
+// Utilisé par : Thread monitor (écriture) et philosophes (lecture)
+
+// 4. DONNÉES DE REPAS (n mutex) - Un par philosophe
+pthread_mutex_t meal_mutex[i];
+// Protection : last_meal_time, meals_eaten, eating
+// Utilisé par : Thread philosophe (écriture) et monitor (lecture)
+```
+
+### Fonctionnement Détaillé des Threads
+
+#### Thread Monitor - Surveillance Continue
+
+```c
+void *monitor(void *pointer)
+{
+    t_data *data = (t_data *)pointer;
+    
+    while (1)  // Boucle infinie de surveillance
+    {
+        // 1. Vérifier si un philosophe est mort
+        if (check_death(data) == 1)
+            break;
+            
+        // 2. Vérifier si tous ont fini de manger
+        if (check_meals(data) == 1)
+            break;
+            
+        // Petit délai pour éviter la surcharge CPU
+        usleep(1000);
+    }
+    return (NULL);
+}
+```
+
+**Fonctions de vérification :**
+
+```c
+int check_death(t_data *data)
+{
+    for (int i = 0; i < data->nb_philo; i++)
+    {
+        // Accès thread-safe au temps du dernier repas
+        pthread_mutex_lock(&data->philos[i].meal_mutex);
+        long long last_meal = data->philos[i].last_meal_time;
+        int eating = data->philos[i].eating;
+        pthread_mutex_unlock(&data->philos[i].meal_mutex);
+        
+        // Vérifier la mort UNIQUEMENT si le philosophe ne mange pas
+        if ((get_time() - last_meal >= data->time_to_die) && eating == 0)
+        {
+            // Marquer la fin de la simulation
+            pthread_mutex_lock(&data->dead_mutex);
+            data->dead = 1;
+            pthread_mutex_unlock(&data->dead_mutex);
+            
+            // Affichage thread-safe de la mort
+            pthread_mutex_lock(&data->print_mutex);
+            printf("%lld %d died\n", get_time() - data->start_time, data->philos[i].id);
+            pthread_mutex_unlock(&data->print_mutex);
+            
+            return (1);  // Arrêter la simulation
+        }
+    }
+    return (0);  // Continuer la simulation
+}
+```
+
+#### Threads Philosophes - Cycle de Vie
+
+```c
+void *philo_routine(void *arg)
+{
+    t_philo *philo = (t_philo *)arg;
+    
+    // Synchronisation : les philosophes pairs attendent 1ms
+    // Cela évite que tous essaient de prendre les fourchettes en même temps
+    if (philo->id % 2 == 0)
+        ft_usleep(1);
+    
+    // Boucle principale du philosophe
+    while (!dead_loop(philo))  // Tant que personne n'est mort
+    {
+        // 1. PRENDRE LES FOURCHETTES
+        if (!take_forks(philo))
+            break;  // Simulation terminée
+            
+        // 2. MANGER
+        eat(philo);
+        
+        // 3. DORMIR
+        dream(philo);
+        
+        // 4. PENSER
+        think(philo);
+    }
+    return (NULL);
+}
+```
+
+### Mécanismes de Synchronisation Avancés
+
+#### 1. Prévention des Deadlocks
+
+**Problème :** Si tous les philosophes prennent leur fourchette de gauche simultanément, deadlock garanti.
+
+**Solution :** Tous les philosophes prennent d'abord la fourchette droite, puis la gauche.
+
+```c
+static int take_forks(t_philo *philo)
+{
+    // TOUJOURS : droite puis gauche
+    pthread_mutex_lock(philo->right_fork);
+    print_status(philo, "has taken a fork");
+    
+    // Cas spécial : 1 seul philosophe
+    if (philo->data->nb_philo == 1)
+    {
+        ft_usleep(philo->data->time_to_die);  // Attendre la mort
+        pthread_mutex_unlock(philo->right_fork);
+        return (0);
+    }
+    
+    pthread_mutex_lock(philo->left_fork);
+    print_status(philo, "has taken a fork");
+    return (1);
+}
+```
+
+#### 2. Protection du Flag "eating"
+
+**Problème crucial :** Un philosophe peut être déclaré mort alors qu'il est en train de manger.
+
+**Solution :** Le flag `eating` protège contre les fausses morts :
+
+```c
+static void eat(t_philo *philo)
+{
+    // ÉTAPE 1 : Marquer le début du repas
+    philo->eating = 1;  // Protection contre la mort
+    print_status(philo, "is eating");
+    
+    // ÉTAPE 2 : Mise à jour thread-safe des données
+    pthread_mutex_lock(&philo->meal_mutex);
+    philo->last_meal_time = get_time();  // Nouveau timestamp
+    philo->meals_eaten++;                // Incrémenter le compteur
+    pthread_mutex_unlock(&philo->meal_mutex);
+    
+    // ÉTAPE 3 : Simulation du temps de manger
+    ft_usleep(philo->data->time_to_eat);
+    
+    // ÉTAPE 4 : Fin du repas
+    philo->eating = 0;  // Plus protégé contre la mort
+    
+    // ÉTAPE 5 : Libération des fourchettes
+    pthread_mutex_unlock(philo->left_fork);
+    pthread_mutex_unlock(philo->right_fork);
+}
+```
+
+#### 3. Vérification Thread-Safe de la Mort
+
+```c
+static int dead_loop(t_philo *philo)
+{
+    pthread_mutex_lock(&philo->data->dead_mutex);
+    if (philo->data->dead == 1)
+    {
+        pthread_mutex_unlock(&philo->data->dead_mutex);
+        return (1);  // Simulation terminée
+    }
+    pthread_mutex_unlock(&philo->data->dead_mutex);
+    return (0);  // Continuer
+}
+```
+
+### Diagramme de Séquence - Cycle Complet
+
+```
+Philosophe 1    Fourchette 1    Fourchette 2    Monitor         Console
+    │               │               │              │               │
+    │──lock()────────▶│               │              │               │
+    │               │               │              │──"taken fork"─▶│
+    │──lock()────────────────────────▶│              │               │
+    │               │               │              │──"taken fork"─▶│
+    │               │               │              │               │
+    │ eating = 1    │               │              │               │
+    │               │               │              │──"is eating"──▶│
+    │ last_meal = now               │              │               │
+    │ meals_eaten++                 │              │               │
+    │               │               │              │               │
+    │   sleep(time_to_eat)          │              │               │
+    │               │               │              │               │
+    │ eating = 0    │               │              │               │
+    │──unlock()─────▶│               │              │               │
+    │──unlock()─────────────────────▶│              │               │
+    │               │               │              │               │
+    │               │               │              │──"is sleeping"▶│
+    │   sleep(time_to_sleep)        │              │               │
+    │               │               │              │               │
+    │               │               │              │──"is thinking"▶│
+    │               │               │              │               │
+    │               │               │              ▼               │
+    │               │               │        check_death()         │
+    │               │               │        check_meals()         │
+```
+
+### Optimisations et Bonnes Pratiques
+
+#### 1. Timing Précis
+```c
+void ft_usleep(int ms)
+{
+    long long start = get_time();
+    
+    // Boucle active + micro-sleeps pour plus de précision
+    while ((get_time() - start) < ms)
+        usleep(500);  // 0.5ms micro-sleep
+}
+```
+
+#### 2. Affichage Thread-Safe
+```c
+void print_status(t_philo *philo, char *status)
+{
+    pthread_mutex_lock(&philo->data->print_mutex);
+    
+    // Vérifier que la simulation n'est pas terminée
+    if (!dead_loop(philo))
+    {
+        long long timestamp = get_time() - philo->data->start_time;
+        printf("%lld %d %s\n", timestamp, philo->id, status);
+    }
+    
+    pthread_mutex_unlock(&philo->data->print_mutex);
+}
+```
+
+#### 3. Démarrage Synchronisé
+```c
+// Dans start_simulation()
+data->start_time = get_time();
+
+// Initialiser tous les last_meal_time au même moment
+for (int i = 0; i < data->nb_philo; i++)
+{
+    data->philos[i].last_meal_time = data->start_time;
+}
+
+// Les philosophes pairs commencent avec un délai pour éviter la compétition
+if (philo->id % 2 == 0)
+    ft_usleep(1);
+```
+
+### Points Critiques de l'Implémentation
+
+#### Race Conditions Évitées
+
+1. **Lecture/Écriture de `dead`** → Protégée par `dead_mutex`
+2. **Lecture/Écriture de `last_meal_time`** → Protégée par `meal_mutex`
+3. **Affichage concurrent** → Protégé par `print_mutex`
+4. **Accès aux fourchettes** → Chaque fourchette a son propre mutex
+
+#### Deadlocks Évités
+
+1. **Acquisition uniforme** → Tous prennent droite puis gauche
+2. **Cas du philosophe seul** → Gestion spéciale avec timeout
+3. **Évitement de la famine** → Synchronisation par délai initial
+
+#### Performance
+
+1. **Monitor léger** → Vérifications courtes avec micro-sleeps
+2. **Mutex granulaires** → Chaque ressource a son propre mutex
+3. **Pas de polling actif** → Utilisation de usleep() dans les boucles
 
 ### Schéma de la Table
 
@@ -112,77 +438,158 @@ int main(int argc, char **argv);
 ```
 
 **Responsabilités :**
-- Validation des arguments de la ligne de commande
-- Initialisation des structures de données
-- Lancement de la simulation
-- Nettoyage des ressources
+- Validation des arguments de la ligne de commande (nombres positifs, limites)
+- Initialisation des structures de données via `init_data()`
+- Lancement de la simulation via `start_simulation()`
+- Nettoyage des ressources : destruction des mutex, libération mémoire
 
-### 2. utils.c - Fonctions Utilitaires
+### 2. utils.c - Fonctions Utilitaires Thread-Safe
 ```c
-// Conversion string vers int
+// Conversion string vers int avec gestion d'erreurs
 int ft_atoi(const char *str);
 
-// Obtient le temps actuel en millisecondes
+// Obtient le temps actuel en millisecondes (gettimeofday)
 long long get_time(void);
 
-// Sleep précis en millisecondes
+// Sleep précis en millisecondes avec boucle active
 void ft_usleep(int ms);
 
-// Affichage thread-safe des statuts
+// Affichage thread-safe des statuts avec mutex
 void print_status(t_philo *philo, char *status);
 ```
 
-### 3. init.c - Initialisation
+**Points critiques :**
+- `print_status()` utilise `print_mutex` pour éviter les messages mélangés
+- `ft_usleep()` combine `usleep(500)` et vérification temporelle pour la précision
+- `get_time()` utilise `gettimeofday()` pour un timing millisecondes précis
+
+### 3. init.c - Initialisation Thread-Safe
 ```c
-// Initialise les données principales
+// Initialise les données principales et parse les arguments
 int init_data(t_data *data, char **argv);
 
-// Initialise les fourchettes (mutex)
+// Crée et initialise n mutex pour les fourchettes
 int init_forks(t_data *data);
 
-// Initialise les philosophes
+// Initialise n philosophes avec leurs mutex individuels
 int init_philos(t_data *data);
 ```
 
-**Processus d'initialisation :**
-1. Parse les arguments
-2. Crée les mutex pour les fourchettes
-3. Initialise chaque philosophe avec ses fourchettes
-4. Configure les mutex de synchronisation
+**Processus d'initialisation critique :**
+1. **Parse des arguments** avec validation des limites
+2. **Création des mutex globaux** : `print_mutex`, `dead_mutex`
+3. **Création des fourchettes** : `n` mutex, un par fourchette
+4. **Initialisation des philosophes** :
+   - Attribution des fourchettes (gauche = `i`, droite = `(i+1)%n`)
+   - Création du `meal_mutex` individuel
+   - Initialisation de `eating = 0`, `meals_eaten = 0`
+5. **Synchronisation temporelle** : `start_time` commun à tous
 
-### 4. philo.c - Logique des Philosophes
+### 4. philo.c - Gestion des Threads Philosophes
+
+#### Fonctions Statiques (Thread-Safe)
 ```c
-// Acquisition des fourchettes (évite les deadlocks)
-static void take_forks(t_philo *philo);
+// Acquisition thread-safe des fourchettes avec protection deadlock
+static int take_forks(t_philo *philo);
 
-// Processus de manger
+// Processus de manger avec flag eating et mise à jour thread-safe
 static void eat(t_philo *philo);
 
-// Processus dormir et penser
-static void sleep_and_think(t_philo *philo);
+// Processus de dormir avec affichage thread-safe
+static void dream(t_philo *philo);
 
-// Routine principale de chaque philosophe
+// Processus de penser avec affichage thread-safe
+static void think(t_philo *philo);
+
+// Vérification thread-safe du flag dead
+static int dead_loop(t_philo *philo);
+```
+
+#### Thread Monitor
+```c
+// Thread de surveillance qui tourne en arrière-plan
+static void *monitor(void *pointer);
+```
+
+**Responsabilités du monitor :**
+- Appel continu de `check_death()` et `check_meals()`
+- Pas de sleep entre les vérifications pour réactivité maximale
+- Arrêt automatique dès qu'une condition de fin est détectée
+
+#### Routine Principale des Philosophes
+```c
 void *philo_routine(void *arg);
+```
 
-// Lance tous les threads
+**Cycle de vie d'un thread philosophe :**
+1. **Synchronisation initiale** : Les pairs attendent 1ms
+2. **Boucle principale** : `while (!dead_loop(philo))`
+   - `take_forks()` → Acquisition avec protection deadlock
+   - `eat()` → Marque `eating=1`, met à jour `last_meal_time`
+   - `dream()` → Sleep pendant `time_to_sleep`
+   - `think()` → Affichage uniquement
+3. **Sortie propre** : Retour `NULL` quand la simulation se termine
+
+#### Gestion de la Simulation
+```c
 int start_simulation(t_data *data);
 ```
 
-**Cycle de vie d'un philosophe :**
-1. **Penser** → Réfléchit (pas d'action spécifique)
-2. **Prendre les fourchettes** → Acquire les mutex
-3. **Manger** → Met à jour `last_meal_time` et `meals_eaten`
-4. **Dormir** → Sleep pendant `time_to_sleep`
-5. **Répéter** jusqu'à la mort ou fin des repas
+**Séquence de démarrage :**
+1. **Création du thread monitor** : `pthread_create(&observer, NULL, &monitor, data)`
+2. **Création des threads philosophes** : Boucle de `pthread_create()`
+3. **Attente du monitor** : `pthread_join(observer, NULL)` - bloque jusqu'à condition de fin
+4. **Attente des philosophes** : `pthread_join()` sur tous les threads philosophes
+5. **Retour** : Signal de fin propre de la simulation
 
-### 5. monitor.c - Surveillance
+### 5. monitor.c - Surveillance Thread-Safe
+
+#### Vérification des Morts
 ```c
-// Vérifie si un philosophe est mort de faim
 int check_death(t_data *data);
+```
 
-// Vérifie si tous ont terminé leurs repas
+**Algorithme de détection :**
+1. **Parcours de tous les philosophes** séquentiellement
+2. **Lecture thread-safe** : `meal_mutex` pour `last_meal_time` et `eating`
+3. **Calcul du temps écoulé** : `current_time - last_meal_time`
+4. **Condition de mort** : `temps_écoulé >= time_to_die ET eating == 0`
+5. **Si mort détectée** :
+   - Marque `dead = 1` (avec `dead_mutex`)
+   - Affiche le message de mort (avec `print_mutex`)
+   - Retourne `1` pour arrêter la simulation
+
+**Point crucial :** Le flag `eating` empêche qu'un philosophe soit déclaré mort pendant qu'il mange.
+
+#### Vérification des Repas Terminés
+```c
 int check_meals(t_data *data);
 ```
+
+**Algorithme de vérification :**
+1. **Vérification du mode** : Si `nb_meals == -1`, simulation infinie
+2. **Comptage thread-safe** : Lecture de `meals_eaten` avec `meal_mutex`
+3. **Condition de fin** : Tous les philosophes ont `meals_eaten >= nb_meals`
+4. **Si terminé** :
+   - Marque `dead = 1` (avec `dead_mutex`) pour arrêter tous les threads
+   - Retourne `1` pour arrêter la simulation
+
+### Synchronisation Inter-Modules
+
+#### Communication Thread Monitor ↔ Threads Philosophes
+- **Flag partagé `dead`** : Monitor (écriture) → Philosophes (lecture)
+- **Protection** : `dead_mutex` pour tous les accès
+- **Vérification** : `dead_loop()` appelé à chaque itération du cycle
+
+#### Communication Thread Philosophe ↔ Monitor
+- **Données partagées** : `last_meal_time`, `meals_eaten`, `eating`
+- **Protection** : `meal_mutex` individuel par philosophe
+- **Fréquence** : Monitor lit en continu, Philosophe met à jour à chaque repas
+
+#### Synchronisation des Fourchettes
+- **Ressource partagée** : Chaque fourchette = 1 mutex
+- **Accès concurrent** : Maximum 2 philosophes par fourchette (voisins)
+- **Protection deadlock** : Ordre d'acquisition uniforme (droite puis gauche)
 
 ## Gestion de la Synchronisation
 

@@ -6,7 +6,7 @@
 /*   By: luda-cun <luda-cun@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/11 11:54:30 by luda-cun          #+#    #+#             */
-/*   Updated: 2025/09/11 14:18:30 by luda-cun         ###   ########.fr       */
+/*   Updated: 2025/09/12 09:35:56 by luda-cun         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -14,7 +14,7 @@
 
 /**
 	* @brief Convertit une chaîne de caractères en entier
-	 (version simplifiée d'atoi)
+		(version simplifiée d'atoi)
  *
  * @param str Chaîne de caractères contenant uniquement des chiffres
  * @return int La valeur entière correspondante, 0 si la chaîne est vide
@@ -23,7 +23,7 @@
  * 1. Parcourt la chaîne caractère par caractère
  * 2. Pour chaque chiffre (0-9),
 	multiplie le résultat par 10 et ajoute le chiffre
- * 3. S'arrête au premier caractère non-numérique ou à la fin de 
+ * 3. S'arrête au premier caractère non-numérique ou à la fin de
   la chaîne
  *
  * Limitations :
@@ -155,5 +155,4 @@ void	print_status(t_philo *philo, char *status)
 	}
 	pthread_mutex_unlock(&philo->data->dead_mutex);
 	pthread_mutex_unlock(&philo->data->print_mutex);
-
 }
